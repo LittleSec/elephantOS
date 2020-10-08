@@ -1,3 +1,10 @@
 # binary
 *.img
 *.bin
+
+# bochs log
+bochs.out
+snapshot.txt
+
+# other
+.DS_Store
