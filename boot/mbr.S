@@ -3,6 +3,8 @@
 ; 在屏幕上打印字符串 "1 MBR", 背景色为闪烁绿色，前景色为红色
 ;------------------------------------------------------
 
+%include "boot.inc"
+
 SECTION MBR vstart=0x7c00         
     mov ax, cs      
     mov ds, ax
@@ -43,12 +45,7 @@ SECTION MBR vstart=0x7c00
                     ; 下标从 0 开始,所以0x18=24,0x4f=79
     int 0x10        ; int 0x10
 
-;打印字符串
-;bit 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 1
-;   |K  R  G  B | I  R G B |    ASCII     |
-;   |   背景色   |   前景色  |
-; 是否闪烁       高亮位
-;   |1  0  1  0 | 0  1 0 0 | <==> (0xA4)
+;打印字符串"1 MBR", 绿色背景闪烁，红色前景
     mov byte [gs:0x00], '1'
     mov byte [gs:0x01], 0xA4    ; A表示绿色背景闪烁，4表示前景色为红色
 
@@ -64,8 +61,102 @@ SECTION MBR vstart=0x7c00
     mov byte [gs:0x08], 'R'
     mov byte [gs:0x09], 0xA4
 
+    call sleep_nop                  ;睡眠，以视效果，书中没有，自己加的
 
-    jmp $		    ; dead loop
+    mov eax, LOADER_START_SECTOR    ; 起始扇区lba地址
+    mov bx, LOADER_BASE_ADDR        ; 写入的地址
+    mov cx, 1                       ; 待读入的扇区数
+    call rd_disk_m_16               ; 以下读取程序的起始部分（一个扇区）
+
+    jmp LOADER_BASE_ADDR
+
+
+;-------------------------------------------------------------------------------
+;功能：使用nop睡眠 1s 左右，书中没有，自己加的
+;for(i: 0->0xff)
+;   for(j: 0->0xffffffff)
+;       nop
+;-------------------------------------------------------------------------------
+sleep_nop:
+    mov ecx, 0x1ff
+.sleep1:
+    mov ebx, ecx
+    mov ecx, 0xffffffff
+.sleep2:
+    nop
+    loop .sleep2
+    mov ecx, ebx
+    loop .sleep1
+    ret
+
+
+;-------------------------------------------------------------------------------
+;功能：读取硬盘n个扇区
+;输入：
+;   eax = LBA扇区号
+;   ebx = 将数据写入的内存地址
+;   ecx = 读入的扇区数
+;-------------------------------------------------------------------------------
+rd_disk_m_16:
+    mov esi, eax        ;备份eax
+    mov di, cx          ;备份cx
+;读写硬盘:
+;第1步：设置要读取的扇区数
+    mov dx, 0x1f2
+    mov al, cl
+    out dx, al          ;读取的扇区数
+    mov eax, esi        ;恢复ax
+
+;第2步：将 LBA 地址存入端口 0x1f3 ~ 0x1f6
+    ;LBA 地址 7~0 位写入端口 0x1f3
+    mov dx, 0x1f3                       
+    out dx, al                          
+
+    ;LBA 地址 15~8 位写入端口 0x1f4
+    mov cl, 8
+    shr eax, cl
+    mov dx, 0x1f4
+    out dx, al
+
+    ;LBA 地址 23~16 位写入端口 0x1f5
+    shr eax, cl
+    mov dx, 0x1f5
+    out dx, al
+
+    shr eax, cl
+    and al, 0x0f        ;lba 第 24~27 位
+    or al, 0xe0         ;设置 7～4 位为1110, 表示lba模式
+    mov dx, 0x1f6
+    out dx, al
+
+;第3步：向 0x1f7 端口写入读命令 0x20 
+    mov dx, 0x1f7
+    mov al, 0x20                        
+    out dx, al
+
+;第4步：检测硬盘状态
+.not_ready:
+    ;同一端口，写时表示写入命令字，读时表示读入硬盘状态
+    nop
+    in al, dx
+    and al, 0x88        ;第4位为1表示硬盘控制器已准备好数据传输，第7位为1表示硬盘忙
+    cmp al, 0x08
+    jnz .not_ready      ;若未准备好，继续等
+
+;第5步：从0x1f0端口读数据
+    mov ax, di
+    mov dx, 256
+    mul dx          ;被乘数在ax，从传参cx->di->ax，其值就是1，结果高16在dx，低16在ax
+                    ;由于结果可知，所以这里丢弃高16
+    mov cx, ax      ;di为要读取的扇区数，一个扇区有512字节，每次读入一个字，
+                    ;共需di*512/2次，所以di*256
+    mov dx, 0x1f0
+.go_on_read:
+    in ax, dx
+    mov [bx], ax
+    add bx, 2		  
+    loop .go_on_read
+    ret
 
 
 ; 填充扇区剩余空间，并设置魔数
