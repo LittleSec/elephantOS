@@ -26,7 +26,7 @@ SECTION MBR vstart=0x7c00
 
 ;清屏，利用0x06号功能，上卷全部行，则可清屏。
 ;------------------------------------------------------
-;INT 0x10   功能号:0x06	   功能描述: 上卷窗口
+;INT 0x10   功能号:0x06    功能描述: 上卷窗口
 ;------------------------------------------------------
 ;输入：
 ;   AH = 功能号 0x06
@@ -65,7 +65,7 @@ SECTION MBR vstart=0x7c00
 
     mov eax, LOADER_START_SECTOR    ; 起始扇区lba地址
     mov bx, LOADER_BASE_ADDR        ; 写入的地址
-    mov cx, 1                       ; 待读入的扇区数
+    mov cx, 4                       ; 待读入的扇区数
     call rd_disk_m_16               ; 以下读取程序的起始部分（一个扇区）
 
     jmp LOADER_BASE_ADDR
@@ -146,15 +146,15 @@ rd_disk_m_16:
 ;第5步：从0x1f0端口读数据
     mov ax, di
     mov dx, 256
-    mul dx          ;被乘数在ax，从传参cx->di->ax，其值就是1，结果高16在dx，低16在ax
-                    ;由于结果可知，所以这里丢弃高16
+    mul dx          ;被乘数在ax，从传参cx->di->ax，结果高16在dx，低16在ax
+                    ;由于结果可知，不会溢出，所以这里丢弃高16
     mov cx, ax      ;di为要读取的扇区数，一个扇区有512字节，每次读入一个字，
                     ;共需di*512/2次，所以di*256
     mov dx, 0x1f0
 .go_on_read:
     in ax, dx
     mov [bx], ax
-    add bx, 2		  
+    add bx, 2
     loop .go_on_read
     ret
 
